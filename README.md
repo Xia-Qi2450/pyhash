@@ -1,5 +1,7 @@
 # pyhash
 
+[![Making sure that the code still functions](https://github.com/Xia-Qi2450/pyhash/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/Xia-Qi2450/pyhash/actions/workflows/ci.yml) [![Build & Release the app](https://github.com/Xia-Qi2450/pyhash/actions/workflows/release.yml/badge.svg?branch=main)](https://github.com/Xia-Qi2450/pyhash/actions/workflows/release.yml)
+
 A recursive, per-directory file checksum maker & verifier. Point it at any folder or a whole drive (may take longer depending on your drive speed) and it hashes every file, writing a small (or big) `checksums.json` log **inside each directory it visits** — so the logs stay right next to the files they describe.
 
 Run it again later in `check` mode to find anything that's changed, corrupted, gone missing, or shown up unexpectedly.
