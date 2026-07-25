@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 r"""
-checksum_tool.py - Recursive, per-directory file checksum maker & verifier.
+pyhash.py - Recursive, per-directory file checksum maker & verifier.
 
 Walks a target folder (or an entire drive) and, for every directory it
 visits, writes a small JSON "checksum log" containing hashes of the files
@@ -12,12 +12,12 @@ Requires:
     halo   (spinner while scanning, optional) -> pip install halo
 
 Usage:
-    python checksum_tool.py hash  <path> [options]
-    python checksum_tool.py check <path> [options]
+    python pyhash.py hash  <path> [options]
+    python pyhash.py check <path> [options]
 
 Examples:
-    python checksum_tool.py hash D:\Photos --algorithm sha256
-    python checksum_tool.py check D:\Photos --report report.json
+    python pyhash.py hash D:\Photos --algorithm sha256
+    python pyhash.py check D:\Photos --report report.json
 """ """"""
 
 from __future__ import annotations

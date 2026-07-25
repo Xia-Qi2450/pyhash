@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 """
-smoke_test.py - End-to-end regression check for checksum_tool.py.
+smoke_test.py - End-to-end regression check for pyhash.py.
 
 Builds a throwaway directory tree, runs `hash`, then mutates files and runs
 `check`, asserting the tool reports exactly what it should (OK / MODIFIED /
 MISSING / NEW) and exits with the right status code.
 
-No extra dependencies beyond what checksum_tool.py itself needs. Run it
+No extra dependencies beyond what pyhash.py itself needs. Run it
 directly:
 
     python tests/smoke_test.py
@@ -22,7 +22,7 @@ import tempfile
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-SCRIPT = REPO_ROOT / "checksum_tool.py"
+SCRIPT = REPO_ROOT / "pyhash.py"
 
 failures = []
 
@@ -44,7 +44,7 @@ def run(*args):
 
 
 def main():
-    tmp = Path(tempfile.mkdtemp(prefix="checksum_tool_smoke_"))
+    tmp = Path(tempfile.mkdtemp(prefix="pyhash_smoke_"))
     try:
         # --- build a small tree ---
         (tmp / "sub").mkdir()

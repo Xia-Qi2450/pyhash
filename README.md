@@ -49,7 +49,7 @@ Re-running `hash` fully refreshes every log including removing logs for director
 ### Verify against existing logs
 
 ```bash
-python checksum_tool.py check "D:\Photos" --report report.json
+python pyhash.py check "D:\Photos" --report report.json
 ```
 
 Compares every file against its recorded hash and reports:

@@ -12,11 +12,11 @@ jobs:
       matrix:
         include:
           - os: ubuntu-latest
-            asset_name: checksum_tool-linux
+            asset_name: pyhash-linux
           - os: windows-latest
-            asset_name: checksum_tool-windows.exe
+            asset_name: pyhash-windows.exe
           - os: macos-latest
-            asset_name: checksum_tool-macos
+            asset_name: pyhash-macos
     runs-on: ${{ matrix.os }}
 
     steps:
@@ -33,15 +33,15 @@ jobs:
         run: python tests/smoke_test.py
 
       - name: Build standalone executable
-        run: pyinstaller --onefile --name checksum_tool checksum_tool.py
+        run: pyinstaller --onefile --name pyhash pyhash.py
 
       - name: Rename artifact (Linux/macOS)
         if: matrix.os != 'windows-latest'
-        run: mv dist/checksum_tool dist/${{ matrix.asset_name }}
+        run: mv dist/pyhash dist/${{ matrix.asset_name }}
 
       - name: Rename artifact (Windows)
         if: matrix.os == 'windows-latest'
-        run: mv dist/checksum_tool.exe dist/${{ matrix.asset_name }}
+        run: mv dist/pyhash.exe dist/${{ matrix.asset_name }}
 
       - uses: actions/upload-artifact@v4
         with:

@@ -25,7 +25,7 @@ jobs:
         run: pip install tqdm halo
 
       - name: Check for syntax/warning issues
-        run: python -W error::SyntaxWarning -m py_compile checksum_tool.py
+        run: python -W error::SyntaxWarning -m py_compile pyhash.py
 
       - name: Run smoke test
         run: python tests/smoke_test.py
