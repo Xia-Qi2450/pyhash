@@ -1,6 +1,6 @@
 # pyhash
 
-[![Making sure that the code still functions](https://github.com/Xia-Qi2450/pyhash/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/Xia-Qi2450/pyhash/actions/workflows/ci.yml) [![Build & Release the app](https://github.com/Xia-Qi2450/pyhash/actions/workflows/release.yml/badge.svg?branch=main)](https://github.com/Xia-Qi2450/pyhash/actions/workflows/release.yml)
+[![Making sure that the code still functions](https://github.com/Xia-Qi2450/pyhash/actions/workflows/ci.yml/badge.svg)](https://github.com/Xia-Qi2450/pyhash/actions/workflows/ci.yml) [![Build & Release the app](https://github.com/Xia-Qi2450/pyhash/actions/workflows/release.yml/badge.svg)](https://github.com/Xia-Qi2450/pyhash/actions/workflows/release.yml) [![GitHub Release](https://img.shields.io/github/v/release/Xia-Qi2450/pyhash)](https://github.com/Xia-Qi2450/pyhash/releases)
 
 A recursive, per-directory file checksum maker & verifier. Point it at any folder or a whole drive (may take longer depending on your drive speed) and it hashes every file, writing a small (or big) `checksums.json` log **inside each directory it visits** — so the logs stay right next to the files they describe.
 
@@ -12,11 +12,25 @@ Uses `tqdm` for a live progress bar while hashing, and `halo` for a spinner duri
 
 ## Install
 
+### Option 1: Download a prebuilt executable (recommended)
+
+Prebuilt standalone executables are available for:
+
+- Windows
+- Linux (Ubuntu)
+- macOS
+
+Download the latest release from the **Releases** page and run it directly — no Python installation or dependencies required.
+
+> **Note**: Since the macOS build isn't code signed or notarized, Gatekeeper may block it on first launch. If that happens, right-click → Open, or remove the quarantine attribute if you're comfortable using Terminal. Remember to run `chmod +x path/to/executable` so that you can run it normally from the terminal.
+
+### Option 2: Run from source
+
 ```bash
 pip install tqdm halo
 ```
 
-(`halo` is optional — the tool still works without it, just with a plainer "scanning..." message instead of a spinner and at that point just install `halo`, it's way cooler anyway.)
+(`halo` is optional, the tool still works without it, just with a plainer "scanning..." message instead of a spinner. But honestly... just install `halo`, it's way cooler anyway.)
 
 ---
 
@@ -45,6 +59,22 @@ python pyhash.py hash "/media/drivename"
 This looks through every subdirectory and writes a `checksums.json` in each one containing the algorithm used, a timestamp, and each file's hash, size, and modified time. You can read this obviously but please don't go around randomly editing something in that `JSON` file.
 
 Re-running `hash` fully refreshes every log including removing logs for directories whose tracked files have all been deleted. We don't want random `checksums.json` lying around in dead directories right?
+
+---
+
+## Standalone executables
+
+The bundled executables include Python and all required dependencies, so you can simply download the version for your operating system and start hashing immediately.
+
+Current builds are available for:
+
+| Operating System | Architecture |
+| ------------------ | -------------- |
+| Windows | x64 |
+| Ubuntu Linux | x64 |
+| macOS | Apple Silicon (arm64) |
+
+Every release is automatically built using GitHub Actions.
 
 ---
 
@@ -112,7 +142,7 @@ Report written to /path/to/your/report.json
 All verified files match their recorded checksums.
 ```
 
-**Example `checksum.json`**:
+**Example `checksums.json`**:
 
 ```json
 {
