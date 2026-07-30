@@ -4,6 +4,33 @@ All notable changes to this project are documented here.
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-07-30
+
+### Added
+
+- `--quick` / `-q` flag on `hash` — when a directory already has a
+  checksum log, files whose size and modified time still match the log
+  are trusted as unchanged and skipped, instead of being re-read and
+  re-hashed. Only new or actually-changed files are hashed. Falls back to
+  a full hash automatically if the cached log is missing, corrupt, or was
+  written with a different algorithm.
+- Move/rename detection in `check` — a missing file and a new file whose
+  hashes match exactly are now reported as `MOVED: old_path -> new_path`
+  instead of as an unrelated `MISSING` + `NEW` pair. A pure move does not
+  affect the command's exit code, since nothing was actually lost. Can be
+  disabled with `--no-detect-moves` / `-nm` to restore the previous
+  MISSING + NEW behavior. Note: only pairs against new files inside
+  directories that already have a log — a file moved into a brand-new,
+  never-hashed directory is not detected as a move.
+- `tests/smoke_test.py` extended with coverage for `--quick` (full reuse,
+  partial reuse after a real change) and move detection (both threaded
+  and sequential paths, plus `--no-detect-moves`).
+
+### Fixed
+
+- Removed a stray leftover string-literal artifact after the module
+  docstring.
+
 ## [1.0.0] - 2026-07-25
 
 Initial release.

@@ -99,6 +99,7 @@ Exits with status code `1` if anything is modified, missing, or errors out, and 
 
 | Flag | Description |
 | --- | --- |
+| `-q`/`--quick` | *(hash only)* quickens the hashing process by skipping files whose size and modified time match the existing log. Added as a quality-of-life feature. |
 | `-a`/`--algorithm {md5,sha1,sha256,sha512,blake2b}` | Hash algorithm (default: `sha256`). Change to whichever that tickles your fancy (actually don't do that) |
 | `-l`/`--log-name NAME` | Checksum log filename (default: `checksums.json`). If you name it `egfbweafbakeb.json`, I'm judging you |
 | `-nr`/`--no-recursive` | Only scan the top-level folder. Generally makes it faster |
@@ -107,7 +108,7 @@ Exits with status code `1` if anything is modified, missing, or errors out, and 
 | `-xf`/`--exclude-files PATTERN [PATTERN ...]` | Glob pattern(s) (a bit like `.gitignore` files) to skip, e.g. `*.tmp` |
 | `-w`/`--workers N` | Parallel hashing threads (default: `4`, use `1` for sequential or if you want it to be slow) |
 | `-nc`/`--no-color` | Disable colored output if your terminal is old and doesn't support ANSI |
-| `-r`/`--report PATH` | *(check only)* write a JSON summary report for checking. Will error out due to the argument not existing in the `hash` subparser |
+| `-r`/`--report PATH` | *(check only)* write a JSON summary report for checking. |
 
 By default, common not so important directories (`.git`, `node_modules`, `__pycache__`, `.venv`, `venv`, `$RECYCLE.BIN`, `System Volume Information`, etc.) are skipped automatically, you don't need to add them.
 

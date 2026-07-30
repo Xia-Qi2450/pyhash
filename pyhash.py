@@ -18,7 +18,7 @@ Usage:
 Examples:
     python pyhash.py hash D:\Photos --algorithm sha256
     python pyhash.py check D:\Photos --report report.json
-""" """"""
+"""
 
 from __future__ import annotations
 
@@ -173,10 +173,18 @@ def run_hash(args):
     with spinner("Scanning directory tree...") as sp:
         dir_files = []
         stale_logs = []  # directories that used to have a log but now have no eligible files
+        existing_logs = {}  # dirpath -> previously-written log data, used for --quick cache lookups
         for dirpath, filenames in discover_directories(root, not args.no_recursive, exclude_dirs, args.include_hidden):
             names = eligible_names(filenames, args.log_name, args.include_hidden, exclude_files)
             if names:
                 dir_files.append((dirpath, names))
+                if args.quick:
+                    log_path = dirpath / args.log_name
+                    if log_path.exists():
+                        try:
+                            existing_logs[dirpath] = json.loads(log_path.read_text(encoding="utf-8"))
+                        except (json.JSONDecodeError, OSError):
+                            pass  # unreadable/corrupt cache -> falls back to a full hash for this dir
             elif (dirpath / args.log_name).exists():
                 stale_logs.append(dirpath / args.log_name)
         total = sum(len(names) for _, names in dir_files)
@@ -189,24 +197,34 @@ def run_hash(args):
     logs = {dirpath: {"algorithm": args.algorithm, "generated_at": iso_now(), "files": {}} for dirpath, _ in dir_files}
     tasks = [(dirpath, name) for dirpath, names in dir_files for name in names]
     errors = 0
+    reused = 0
 
     def work(dirpath: Path, name: str):
         fpath = dirpath / name
-        digest = hash_file(fpath, args.algorithm)
         stat = fpath.stat()
-        return dirpath, name, {
-            "hash": digest,
-            "size": stat.st_size,
-            "modified": datetime.fromtimestamp(stat.st_mtime, tz=timezone.utc).isoformat(timespec="seconds"),
-        }
+        modified_iso = datetime.fromtimestamp(stat.st_mtime, tz=timezone.utc).isoformat(timespec="seconds")
+
+        if args.quick:
+            prev_log = existing_logs.get(dirpath)
+            if prev_log and prev_log.get("algorithm") == args.algorithm:
+                prev_entry = prev_log.get("files", {}).get(name)
+                if prev_entry and prev_entry.get("size") == stat.st_size and prev_entry.get("modified") == modified_iso:
+                    entry = {"hash": prev_entry["hash"], "size": stat.st_size, "modified": modified_iso}
+                    return dirpath, name, entry, True  # reused cached hash, no read needed
+
+        digest = hash_file(fpath, args.algorithm)
+        entry = {"hash": digest, "size": stat.st_size, "modified": modified_iso}
+        return dirpath, name, entry, False
 
     with tqdm(total=total, unit="file", desc="Hashing", ncols=90) as bar:
         if args.workers <= 1:
             for dirpath, name in tasks:
                 bar.set_postfix_str(truncate(name))
                 try:
-                    d, n, entry = work(dirpath, name)
+                    d, n, entry, was_reused = work(dirpath, name)
                     logs[d]["files"][n] = entry
+                    if was_reused:
+                        reused += 1
                 except OSError as e:
                     errors += 1
                     tqdm.write(f"{C.RED}  ERROR{C.RESET} {dirpath / name}: {e}")
@@ -218,8 +236,10 @@ def run_hash(args):
                     d, n = futures[fut]
                     bar.set_postfix_str(truncate(n))
                     try:
-                        d2, n2, entry = fut.result()
+                        d2, n2, entry, was_reused = fut.result()
                         logs[d2]["files"][n2] = entry
+                        if was_reused:
+                            reused += 1
                     except OSError as e:
                         errors += 1
                         tqdm.write(f"{C.RED}  ERROR{C.RESET} {d / n}: {e}")
@@ -245,8 +265,14 @@ def run_hash(args):
             print(f"{C.RED}Failed to remove stale log {log_path}: {e}{C.RESET}")
 
     print()
-    print(f"{C.BOLD}Done.{C.RESET} {C.GREEN}{total - errors} file(s) hashed{C.RESET}, "
-          f"{written} log file(s) written ({args.log_name}).")
+    if args.quick:
+        actually_hashed = total - errors - reused
+        print(f"{C.BOLD}Done.{C.RESET} {C.GREEN}{actually_hashed} file(s) hashed{C.RESET}, "
+              f"{C.DIM}{reused} unchanged (skipped via --quick){C.RESET}, "
+              f"{written} log file(s) written ({args.log_name}).")
+    else:
+        print(f"{C.BOLD}Done.{C.RESET} {C.GREEN}{total - errors} file(s) hashed{C.RESET}, "
+              f"{written} log file(s) written ({args.log_name}).")
     if removed:
         print(f"{C.DIM}Removed {removed} stale log file(s) for directories with no matching files.{C.RESET}")
     if errors:
@@ -276,8 +302,10 @@ def run_check(args):
                 dir_entries.append((dirpath, names, log_data, corrupt))
         sp.succeed(f"Scanned {len(dir_entries)} director{'y' if len(dir_entries) == 1 else 'ies'}")
 
-    results = {"ok": [], "modified": [], "missing": [], "new": [], "errors": [], "corrupt_logs": [], "no_log_dirs": []}
-    hash_tasks = []  # (dirpath, name, expected_hash, algorithm)
+    results = {"ok": [], "modified": [], "missing": [], "new": [], "moved": [], "errors": [], "corrupt_logs": [], "no_log_dirs": []}
+    verify_tasks = []       # (dirpath, name, expected_hash, algorithm) -- files present in both log and on disk
+    missing_candidates = [] # (dirpath, name, expected_hash) -- logged but no longer on disk
+    new_candidates = []     # (dirpath, name, algorithm) -- on disk but not logged
 
     for dirpath, present_names, log_data, corrupt in dir_entries:
         if corrupt:
@@ -293,33 +321,39 @@ def run_check(args):
         algo = log_data.get("algorithm", args.algorithm)
         logged_names = set(logged.keys())
 
-        for missing_name in sorted(logged_names - present_names):
-            path = dirpath / missing_name
-            results["missing"].append(str(path))
-            print(f"{C.RED}  MISSING{C.RESET}  {path}")
+        for missing_name in logged_names - present_names:
+            missing_candidates.append((dirpath, missing_name, logged[missing_name].get("hash")))
 
-        for new_name in sorted(present_names - logged_names):
-            path = dirpath / new_name
-            results["new"].append(str(path))
-            print(f"{C.YELLOW}  NEW{C.RESET}      {path}")
+        for new_name in present_names - logged_names:
+            new_candidates.append((dirpath, new_name, algo))
 
         for common_name in logged_names & present_names:
-            hash_tasks.append((dirpath, common_name, logged[common_name].get("hash"), algo))
+            verify_tasks.append((dirpath, common_name, logged[common_name].get("hash"), algo))
 
-    total = len(hash_tasks)
+    detect_moves = not args.no_detect_moves
+    # Only worth hashing "new" files if there's something missing they could match against.
+    hash_new_for_moves = detect_moves and bool(missing_candidates) and bool(new_candidates)
+
+    total = len(verify_tasks) + (len(new_candidates) if hash_new_for_moves else 0)
+    new_hashes = {}  # (dirpath, name) -> digest, only populated when hash_new_for_moves
+
     if total:
-        def work(dirpath, name, expected, algo):
-            fpath = dirpath / name
-            digest = hash_file(fpath, algo)
+        def verify_work(dirpath, name, expected, algo):
+            digest = hash_file(dirpath / name, algo)
             return dirpath, name, digest == expected
 
+        def new_work(dirpath, name, algo):
+            digest = hash_file(dirpath / name, algo)
+            return dirpath, name, digest
+
         with tqdm(total=total, unit="file", desc="Verifying", ncols=90) as bar:
+            # --- pass 1: verify files that are both logged and present ---
             if args.workers <= 1:
-                for dirpath, name, expected, algo in hash_tasks:
+                for dirpath, name, expected, algo in verify_tasks:
                     bar.set_postfix_str(truncate(name))
                     fpath = dirpath / name
                     try:
-                        _, _, ok = work(dirpath, name, expected, algo)
+                        _, _, ok = verify_work(dirpath, name, expected, algo)
                         target = results["ok"] if ok else results["modified"]
                         target.append(str(fpath))
                         if not ok:
@@ -330,7 +364,7 @@ def run_check(args):
                     bar.update(1)
             else:
                 with ThreadPoolExecutor(max_workers=args.workers) as pool:
-                    futures = {pool.submit(work, d, n, e, a): (d, n) for d, n, e, a in hash_tasks}
+                    futures = {pool.submit(verify_work, d, n, e, a): (d, n) for d, n, e, a in verify_tasks}
                     for fut in as_completed(futures):
                         d, n = futures[fut]
                         fpath = d / n
@@ -346,6 +380,70 @@ def run_check(args):
                             tqdm.write(f"{C.RED}  ERROR{C.RESET}    {fpath}: {e}")
                         bar.update(1)
 
+            # --- pass 2: hash "new" files so they can be matched against missing hashes ---
+            if hash_new_for_moves:
+                if args.workers <= 1:
+                    for dirpath, name, algo in new_candidates:
+                        bar.set_postfix_str(truncate(name))
+                        fpath = dirpath / name
+                        try:
+                            _, _, digest = new_work(dirpath, name, algo)
+                            new_hashes[(dirpath, name)] = digest
+                        except OSError as e:
+                            results["errors"].append(f"{fpath}: {e}")
+                            tqdm.write(f"{C.RED}  ERROR{C.RESET}    {fpath}: {e}")
+                        bar.update(1)
+                else:
+                    with ThreadPoolExecutor(max_workers=args.workers) as pool:
+                        futures = {pool.submit(new_work, d, n, a): (d, n) for d, n, a in new_candidates}
+                        for fut in as_completed(futures):
+                            d, n = futures[fut]
+                            fpath = d / n
+                            bar.set_postfix_str(truncate(n))
+                            try:
+                                _, _, digest = fut.result()
+                                new_hashes[(d, n)] = digest
+                            except OSError as e:
+                                results["errors"].append(f"{fpath}: {e}")
+                                tqdm.write(f"{C.RED}  ERROR{C.RESET}    {fpath}: {e}")
+                            bar.update(1)
+
+    # --- match missing <-> new by hash to detect renames/moves, then report final statuses ---
+    if hash_new_for_moves:
+        missing_by_hash = {}
+        for dirpath, name, expected_hash in missing_candidates:
+            if expected_hash:
+                missing_by_hash.setdefault(expected_hash, []).append((dirpath, name))
+
+        matched_missing = set()
+        for (dirpath, name), digest in sorted(new_hashes.items(), key=lambda item: str(item[0][0] / item[0][1])):
+            candidates = missing_by_hash.get(digest)
+            if candidates:
+                old_dirpath, old_name = candidates.pop(0)
+                matched_missing.add((old_dirpath, old_name))
+                old_path, new_path = old_dirpath / old_name, dirpath / name
+                results["moved"].append({"from": str(old_path), "to": str(new_path)})
+                print(f"{C.MAGENTA}  MOVED{C.RESET}    {old_path} -> {new_path}")
+            else:
+                path = dirpath / name
+                results["new"].append(str(path))
+                print(f"{C.YELLOW}  NEW{C.RESET}      {path}")
+
+        for dirpath, name, expected_hash in sorted(missing_candidates, key=lambda t: str(t[0] / t[1])):
+            if (dirpath, name) not in matched_missing:
+                path = dirpath / name
+                results["missing"].append(str(path))
+                print(f"{C.RED}  MISSING{C.RESET}  {path}")
+    else:
+        for dirpath, name, expected_hash in sorted(missing_candidates, key=lambda t: str(t[0] / t[1])):
+            path = dirpath / name
+            results["missing"].append(str(path))
+            print(f"{C.RED}  MISSING{C.RESET}  {path}")
+        for dirpath, name, algo in sorted(new_candidates, key=lambda t: str(t[0] / t[1])):
+            path = dirpath / name
+            results["new"].append(str(path))
+            print(f"{C.YELLOW}  NEW{C.RESET}      {path}")
+
     # ---- summary ----
     print()
     print(f"{C.BOLD}Summary{C.RESET}")
@@ -353,6 +451,8 @@ def run_check(args):
     print(f"  {C.RED}Modified{C.RESET}:  {len(results['modified'])}")
     print(f"  {C.RED}Missing{C.RESET}:   {len(results['missing'])}")
     print(f"  {C.YELLOW}New{C.RESET}:       {len(results['new'])}")
+    if detect_moves:
+        print(f"  {C.MAGENTA}Moved{C.RESET}:     {len(results['moved'])}")
     print(f"  {C.RED}Errors{C.RESET}:    {len(results['errors']) + len(results['corrupt_logs'])}")
     if results["no_log_dirs"]:
         print(f"  {C.DIM}Directories with no log: {len(results['no_log_dirs'])}{C.RESET}")
@@ -405,10 +505,14 @@ def build_parser():
 
     p_hash = sub.add_parser("hash", help="Hash files and write per-directory checksum logs")
     add_common(p_hash)
+    p_hash.add_argument("-q", "--quick", action="store_true",
+                         help="Skip re-hashing files whose size and modified time match the existing log")
 
     p_check = sub.add_parser("check", help="Verify files against existing checksum logs")
     add_common(p_check)
-    p_check.add_argument("-r","--report", help="Write a JSON summary report to this path")
+    p_check.add_argument("-r", "--report", help="Write a JSON summary report to this path")
+    p_check.add_argument("-nm", "--no-detect-moves", action="store_true",
+                          help="Report renamed/moved files as separate MISSING + NEW instead of MOVED")
 
     return parser
 
